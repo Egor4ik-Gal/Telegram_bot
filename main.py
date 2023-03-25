@@ -1,8 +1,10 @@
 from aiogram import Bot, Dispatcher, executor, types
-import datetime
+import datetime as dt
+from datetime import datetime
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
+import re
 
 token_api = '6033695577:AAHc5EHYk59gA8fUc3zhYDNzASHwi_Nr-yA'
 
@@ -59,18 +61,30 @@ async def help(message: types.Message):
 
 @dp.message_handler(commands=['new_day'] or types.Message.text == 'Создать запись')  # создание записи для нового дня
 async def new_day(message: types.Message) -> None:
-    await message.reply('Давай создадим новую заметку!\nСначала введи дату, на которую ты хочешь сделать запись')
+    text = 'Давай создадим новую заметку!\nСначала введи дату для записи\nФормат даты ДД-ММ-ГГГГ'
+    await message.reply(text)
     await RecordStatesGroup.date.set() # устанавливается состояние ожидания для получения даты
 
 
 @dp.message_handler(state=RecordStatesGroup.date)
 async def input_date(message: types.Message, state: FSMContext) -> None:
     async with state.proxy() as data:
-        data['date'] = message.text
-        # здесь и везде далее сохнаняется полученное сообщение в словарь data. потом из него можно будет в бд заливать
-        # тут ещё нужно дописать проверку даты
-    await message.reply('Введи описание дня текстом')
-    await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения описания дня текстом
+        date = message.text
+        try:
+            res = bool(datetime.strptime(date, "%d-%m-%Y"))
+        except ValueError:
+            res = False
+        if res:
+            if datetime.strptime(str(dt.date.today()), "%Y-%m-%d") < datetime.strptime(date, "%d-%m-%Y"):
+                res = False
+            else:
+                data['date'] = date
+    # здесь и везде далее сохнаняется полученное сообщение в словарь data. потом из него можно будет в бд заливать
+    if res:
+        await message.reply('Введи описание дня текстом')
+        await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения описания дня текстом
+    else:
+        await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
 
 
 @dp.message_handler(state=RecordStatesGroup.text_description)
@@ -120,7 +134,7 @@ async def first(message: types.Message):
         await message.reply('Прости, я тебя не понимаю\nПопробуй воспользоваться командой /help или /h')
     elif flag is True:
         flag = False
-        await message.reply(f'Твоя заметка создана сегодня({datetime.date.today()})!\n{message.text}')
+        await message.reply(f'Твоя заметка создана сегодня({dt.date.today()})!\n{message.text}')
         # тут создается запись для бд. Текст хранится в переменной message.text
     else:
         await new_day(message)
