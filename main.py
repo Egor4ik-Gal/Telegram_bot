@@ -4,7 +4,7 @@ from datetime import datetime
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
-import re
+import sqlite3
 
 token_api = '6033695577:AAHc5EHYk59gA8fUc3zhYDNzASHwi_Nr-yA'
 
@@ -61,7 +61,9 @@ async def help(message: types.Message):
 
 @dp.message_handler(commands=['new_day'] or types.Message.text == 'Создать запись')  # создание записи для нового дня
 async def new_day(message: types.Message) -> None:
+    global flag
     text = 'Давай создадим новую заметку!\nСначала введи дату для записи\nФормат даты ДД-ММ-ГГГГ'
+    flag = True
     await message.reply(text)
     await RecordStatesGroup.date.set() # устанавливается состояние ожидания для получения даты
 
@@ -123,12 +125,40 @@ async def input_emoji(message: types.Message, state: FSMContext) -> None:
 async def input_places(message: types.Message, state: FSMContext) -> None:
     async with state.proxy() as data:
         data['places'] = message.text
+        #  здесь все записывается в базу данных
+        con = sqlite3.connect('Telegram-bot.db')
+        cur = con.cursor()
+        cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
+        cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
+        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
+         '{str(data['date'])}');""")
+        cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
+        (SELECT id FROM Days WHERE user_id = 
+        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+        '{data['text_description']}');""")
+        cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
+        (SELECT id FROM Days WHERE user_id = 
+        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+        '{data['audio_description']}');""")
+        cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
+        (SELECT id FROM Days WHERE user_id = 
+        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+        '{data['photo']}');""")
+        cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
+        (SELECT id FROM Days WHERE user_id = 
+        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+        '{data['emoji']}');""")
+        cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
+            (SELECT id FROM Days WHERE user_id = 
+            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+            '{data['places']}');""")
+        con.commit()
     await message.reply('Запись успешно создана!')
     await state.finish() # работа с состояниями завершена
 
 
 @dp.message_handler()
-async def first(message: types.Message):
+async def first(message: types.Message, state: FSMContext):
     global flag
     if message.text not in ['Просмотр записей', "Создать запись"] and flag is False:
         await message.reply('Прости, я тебя не понимаю\nПопробуй воспользоваться командой /help или /h')
