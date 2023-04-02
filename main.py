@@ -62,7 +62,7 @@ async def help(message: types.Message):
 @dp.message_handler(commands=['new_day'] or types.Message.text == 'Создать запись')  # создание записи для нового дня
 async def new_day(message: types.Message) -> None:
     global flag
-    text = 'Давай создадим новую заметку!\nСначала введи дату для записи\nФормат даты ДД-ММ-ГГГГ'
+    text = 'Давай создадим новую запись!\nСначала введи дату для записи\nФормат даты ДД-ММ-ГГГГ'
     flag = True
     await message.reply(text)
     await RecordStatesGroup.date.set() # устанавливается состояние ожидания для получения даты
@@ -72,102 +72,156 @@ async def new_day(message: types.Message) -> None:
 async def input_date(message: types.Message, state: FSMContext) -> None:
     async with state.proxy() as data:
         date = message.text
-        try:
-            res = bool(datetime.strptime(date, "%d-%m-%Y"))
-        except ValueError:
-            res = False
-        if res:
-            if datetime.strptime(str(dt.date.today()), "%Y-%m-%d") < datetime.strptime(date, "%d-%m-%Y"):
+        stop = False
+        if date == 'Прекратить создание записи':
+            stop = True
+        else:
+            try:
+                res = bool(datetime.strptime(date, "%d-%m-%Y"))
+            except ValueError:
                 res = False
-            else:
-                data['date'] = date
+            if res:
+                if datetime.strptime(str(dt.date.today()), "%Y-%m-%d") < datetime.strptime(date, "%d-%m-%Y"):
+                    res = False
+                else:
+                    data['date'] = date
     # здесь и везде далее сохнаняется полученное сообщение в словарь data. потом из него можно будет в бд заливать
-    if res:
-        await message.reply('Введи описание дня текстом')
-        await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения описания дня текстом
+    if stop:
+        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await state.finish()
     else:
-        await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
+        if res:
+            await message.reply('Введи описание дня текстом')
+            await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения описания дня текстом
+        else:
+            await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
 
 
 @dp.message_handler(state=RecordStatesGroup.text_description)
 async def input_text(message: types.Message, state: FSMContext) -> None:
-    async with state.proxy() as data:
-        data['text_description'] = message.text
-    await message.reply('Отправь описание дня аудиосообщением')
-    await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения описания дня войсом
+    if message.text == 'Прекратить создание записи':
+        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await state.finish()
+    elif message.text == 'Пропустить':
+        async with state.proxy() as data:
+            data['text_description'] = None
+        await message.reply('Отправь описание дня аудиосообщением')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения описания дня войсом
+    else:
+        async with state.proxy() as data:
+            data['text_description'] = message.text
+        await message.reply('Отправь описание дня аудиосообщением')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения описания дня войсом
 
 
-@dp.message_handler(content_types=['voice'], state=RecordStatesGroup.voice_description)
+@dp.message_handler(content_types=['any'], state=RecordStatesGroup.voice_description)
 async def input_voice(message: types.Message, state: FSMContext) -> None:
-    async with state.proxy() as data:
-        data['audio_description'] = message.voice.file_id
-    await message.reply('Отправь фотографию за этот день')
-    await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения фотографии
+    if message.voice:
+        async with state.proxy() as data:
+            data['audio_description'] = message.voice.file_id
+        await message.reply('Отправь фотографию за этот день')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения фотографии
+    elif message.text == 'Пропустить':
+        async with state.proxy() as data:
+            data['audio_description'] = None
+        await message.reply('Отправь фотографию за этот день')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения фотографии
+    elif message.text == 'Прекратить создание записи':
+        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await state.finish()
+    else:
+        await message.reply('Это не голосовое сообщение')
 
 
-@dp.message_handler(content_types=['photo'], state=RecordStatesGroup.photo)
+@dp.message_handler(content_types=['any'], state=RecordStatesGroup.photo)
 async def input_photo(message: types.Message, state: FSMContext) -> None:
-    async with state.proxy() as data:
-        data['photo'] = message.photo[0].file_id
-    await message.reply('Отправь эмодзи, описывающее этот день')
-    await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения эмодзи
+    if message.photo:
+        async with state.proxy() as data:
+            data['photo'] = message.photo[0].file_id
+        await message.reply('Отправь эмодзи, описывающее этот день')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения эмодзи
+    elif message.text == 'Пропустить':
+        async with state.proxy() as data:
+            data['photo'] = None
+        await message.reply('Отправь эмодзи, описывающее этот день')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения эмодзи
+    elif message.text == 'Прекратить создание записи':
+        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await state.finish()
+    else:
+        await message.reply('Это не фотография')
 
 
 @dp.message_handler(state=RecordStatesGroup.emoji)
 async def input_emoji(message: types.Message, state: FSMContext) -> None:
-    async with state.proxy() as data:
-        data['emoji'] = message.text
-    await message.reply('Напиши адреса мест, в которых ты побывал\n(каждый адрес пиши с новой строки)')
-    await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения адресов
+    if message.text == 'Прекратить создание записи':
+        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await state.finish()
+    elif message.text == 'Пропустить':
+        async with state.proxy() as data:
+            data['emoji'] = None
+        await message.reply('Напиши адреса мест, в которых ты побывал\n(каждый адрес пиши с новой строки)')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения адресов
+    else:
+        async with state.proxy() as data:
+            data['emoji'] = message.text
+        await message.reply('Напиши адреса мест, в которых ты побывал\n(каждый адрес пиши с новой строки)')
+        await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения адресов
 
 
 @dp.message_handler(state=RecordStatesGroup.places)
 async def input_places(message: types.Message, state: FSMContext) -> None:
-    async with state.proxy() as data:
-        data['places'] = message.text
-        #  здесь все записывается в базу данных
-        con = sqlite3.connect('Telegram-bot.db')
-        cur = con.cursor()
-        cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
-        cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
-        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
-         '{str(data['date'])}');""")
-        cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
-        (SELECT id FROM Days WHERE user_id = 
-        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-        '{data['text_description']}');""")
-        cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
-        (SELECT id FROM Days WHERE user_id = 
-        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-        '{data['audio_description']}');""")
-        cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
-        (SELECT id FROM Days WHERE user_id = 
-        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-        '{data['photo']}');""")
-        cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
-        (SELECT id FROM Days WHERE user_id = 
-        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-        '{data['emoji']}');""")
-        cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
+    if message.text == 'Прекратить создание записи':
+        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await state.finish()
+    else:
+        if message.text == 'Пропустить':
+            places = None
+        else:
+            places = message.text
+        async with state.proxy() as data:
+            data['places'] = places
+            #  здесь все записывается в базу данных
+            con = sqlite3.connect('Telegram-bot.db')
+            cur = con.cursor()
+            cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
+            cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
+            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
+             '{str(data['date'])}');""")
+            cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
             (SELECT id FROM Days WHERE user_id = 
             (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-            '{data['places']}');""")
-        con.commit()
-    await message.reply('Запись успешно создана!')
-    await state.finish() # работа с состояниями завершена
+            '{data['text_description']}');""")
+            cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
+            (SELECT id FROM Days WHERE user_id = 
+            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+            '{data['audio_description']}');""")
+            cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
+            (SELECT id FROM Days WHERE user_id = 
+            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+            '{data['photo']}');""")
+            cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
+            (SELECT id FROM Days WHERE user_id = 
+            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+            '{data['emoji']}');""")
+            cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
+                (SELECT id FROM Days WHERE user_id = 
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+                '{data['places']}');""")
+            con.commit()
+        await message.reply('Запись успешно создана!')
+        await state.finish() # работа с состояниями завершена
 
 
 @dp.message_handler()
 async def first(message: types.Message, state: FSMContext):
     global flag
-    if message.text not in ['Просмотр записей', "Создать запись"] and flag is False:
+    if message.text not in ['Просмотр записей', "Создать запись"]:
         await message.reply('Прости, я тебя не понимаю\nПопробуй воспользоваться командой /help или /h')
-    elif flag is True:
-        flag = False
-        await message.reply(f'Твоя заметка создана сегодня({dt.date.today()})!\n{message.text}')
-        # тут создается запись для бд. Текст хранится в переменной message.text
-    else:
+    elif message.text == 'Создать запись':
         await new_day(message)
+    elif message.text == 'Просмотр записей':
+        pass
 
 
 if __name__ == '__main__':
