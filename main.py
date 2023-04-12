@@ -12,7 +12,9 @@ storage = MemoryStorage()
 bot = Bot(token_api)
 dp = Dispatcher(bot, storage=storage)
 flag = False  # проверка создается ли запись
-# запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки (пока не реализовал)
+# запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки
+kb = [[types.KeyboardButton(text="Прекратить создание записи"), types.KeyboardButton(text="Пропустить")], ]
+skip_keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
 
 
 class RecordStatesGroup(StatesGroup):
@@ -26,8 +28,7 @@ class RecordStatesGroup(StatesGroup):
 
 @dp.message_handler(commands='start')  # по команде /start выводиться вопрос + выбор кнопок
 async def start(message: types.Message):
-    kb = [
-        [types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
+    kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
     ]
     keyboard = types.ReplyKeyboardMarkup(
         keyboard=kb,
@@ -40,7 +41,7 @@ async def start(message: types.Message):
 @dp.message_handler(commands=['help', 'h'])  # вспомогательная команда /help дает справку о всех командах бота
 async def help(message: types.Message):
     text = 'Что умеет наш бот?\n/start - поможет тебе создать или посмотреть уже созданные записи\n'\
-           '/new_day - создаст новую запись\n...'
+           '/new_day - создаст новую запись\nЕсли хочешь на что-то неотвечать напиши просто Пропустить!\n...'
     await message.answer(text)
 
 
@@ -64,8 +65,9 @@ async def new_day(message: types.Message) -> None:
     global flag
     text = 'Давай создадим новую запись!\nСначала введи дату для записи\nФормат даты ДД-ММ-ГГГГ'
     flag = True
-    await message.reply(text)
-    await RecordStatesGroup.date.set() # устанавливается состояние ожидания для получения даты
+
+    await message.reply(text, reply_markup=skip_keyboard)
+    await RecordStatesGroup.date.set()  # устанавливается состояние ожидания для получения даты
 
 
 @dp.message_handler(state=RecordStatesGroup.date)
@@ -75,6 +77,9 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
         stop = False
         if date == 'Прекратить создание записи':
             stop = True
+        elif date == 'Пропустить':
+            await message.reply('Этот пункт обязателен!')
+            res = 'flag'
         else:
             try:
                 res = bool(datetime.strptime(date, "%d-%m-%Y"))
@@ -90,9 +95,11 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
         await message.reply('Создание записи прекращено. Данные не сохранены')
         await state.finish()
     else:
-        if res:
-            await message.reply('Введи описание дня текстом')
-            await RecordStatesGroup.next() # устанавливается следующее состояние ожидания для получения описания дня текстом
+        if res == 'flag':
+            pass
+        elif res:
+            await message.reply('Введи описание дня текстом', reply_markup=skip_keyboard)
+            await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения описания дня текстом
         else:
             await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
 
@@ -209,8 +216,15 @@ async def input_places(message: types.Message, state: FSMContext) -> None:
                 (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
                 '{data['places']}');""")
             con.commit()
-        await message.reply('Запись успешно создана!')
-        await state.finish() # работа с состояниями завершена
+        kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
+              ]
+        keyboard = types.ReplyKeyboardMarkup(
+            keyboard=kb,
+            resize_keyboard=True,
+            input_field_placeholder="Выберите действие"
+        )
+        await message.reply('Запись успешно создана!', reply_markup=keyboard)
+        await state.finish()  # работа с состояниями завершена
 
 
 @dp.message_handler()
