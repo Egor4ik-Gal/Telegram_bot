@@ -11,6 +11,8 @@ token_api = '6033695577:AAHc5EHYk59gA8fUc3zhYDNzASHwi_Nr-yA'
 storage = MemoryStorage()
 bot = Bot(token_api)
 dp = Dispatcher(bot, storage=storage)
+con = sqlite3.connect('Telegram-bot.db')
+cur = con.cursor()
 flag = False  # проверка создается ли запись
 # запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки
 kb = [[types.KeyboardButton(text="Прекратить создание записи"), types.KeyboardButton(text="Пропустить")], ]
@@ -33,7 +35,7 @@ class ViewingStatesGroup(StatesGroup):
 @dp.message_handler(commands='start')  # по команде /start выводиться вопрос + выбор кнопок
 async def start(message: types.Message):
     kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
-    ]
+          ]
     keyboard = types.ReplyKeyboardMarkup(
         keyboard=kb,
         resize_keyboard=True,
@@ -44,7 +46,7 @@ async def start(message: types.Message):
 
 @dp.message_handler(commands=['help', 'h'])  # вспомогательная команда /help дает справку о всех командах бота
 async def help(message: types.Message):
-    text = 'Что умеет наш бот?\n/start - поможет тебе создать или посмотреть уже созданные записи\n'\
+    text = 'Что умеет наш бот?\n/start - поможет тебе создать или посмотреть уже созданные записи\n' \
            '/new_day - создаст новую запись\nЕсли хочешь на что-то неотвечать напиши просто Пропустить!\n...'
     await message.answer(text)
 
@@ -178,8 +180,6 @@ async def input_places(message: types.Message, state: FSMContext) -> None:
         async with state.proxy() as data:
             data['places'] = places
             #  здесь все записывается в базу данных
-            con = sqlite3.connect('Telegram-bot.db')
-            cur = con.cursor()
             cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
             cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
             (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
@@ -218,10 +218,12 @@ async def input_places(message: types.Message, state: FSMContext) -> None:
 
 @dp.message_handler(commands=['viewing'] or types.Message.text == 'Просмотр записей')  # создание записи для нового дня
 async def viewing(message: types.Message) -> None:
-    dates = [] # здесь нужен список дат которые есть в БД
+    dates = cur.execute(
+        f"SELECT date FROM Days WHERE user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()
+    # здесь нужен список дат которые есть в БД
     dates_str = ''
     for date in dates:
-        dates_str += date + '\n'
+        dates_str += str(date[0]) + '\n'
     if dates:
         text = f'Есть записи на такие даты:\n{dates_str}'
         await message.reply(text)
@@ -241,18 +243,26 @@ async def ask_date(message: types.Message, state: FSMContext) -> None:
         if datetime.strptime(str(dt.date.today()), "%Y-%m-%d") < datetime.strptime(date, "%d-%m-%Y"):
             res = False
     if res:
-        проверка_на_то_что_дата_есть_в_бд = False
+        date_in_db = cur.execute(
+            f"SELECT id FROM Days WHERE date = '{date}' AND user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()[0][0]
         # в if  надо написать проверку есть ли дата в БД
-        if проверка_на_то_что_дата_есть_в_бд:
-            text = '' # в эту переменную записать то, что есть в БД на эту дату в разделе текст
-            voice = '' # в эту переменную записать то, что есть в БД на эту дату в разделе голосовое сообщение
-            photo = '' # в эту переменную записать то, что есть в БД на эту дату в разделе фото
-            emoji = '' # в эту переменную записать то, что есть в БД на эту дату в разделе эмодзи
-            place = '' # в эту переменную записать то, что есть в БД на эту дату в разделе места
+        if date_in_db:
+            text = cur.execute(
+                f"SELECT text FROM Texts WHERE day_id = {date_in_db}").fetchall()[0][0]  # в эту переменную записать то, что есть в БД на эту дату в разделе текст
+            voice = cur.execute(
+                f"SELECT voice FROM Voices WHERE day_id = {date_in_db}").fetchall()[0][0] # в эту переменную записать то, что есть в БД на эту дату в разделе голосовое сообщение
+            photo = cur.execute(
+                f"SELECT photo FROM Photos WHERE day_id = {date_in_db}").fetchall()[0][0]  # в эту переменную записать то, что есть в БД на эту дату в разделе фото
+            emoji = cur.execute(
+                f"SELECT emoji FROM Emojis WHERE day_id = {date_in_db}").fetchall()[0][0]   # в эту переменную записать то, что есть в БД на эту дату в разделе эмодзи
+            place = cur.execute(
+                f"SELECT places FROM Places WHERE day_id = {date_in_db}").fetchall()[0][0]  # в эту переменную записать то, что есть в БД на эту дату в разделе места
+            print('a')
         else:
             await message.reply('На эту дату нет записи. Попробуй другую')
     else:
         await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
+
 
 @dp.message_handler()
 async def first(message: types.Message, state: FSMContext):
