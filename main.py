@@ -4,6 +4,7 @@ from datetime import datetime
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
+from random import choice
 import sqlite3
 
 token_api = '6033695577:AAHc5EHYk59gA8fUc3zhYDNzASHwi_Nr-yA'
@@ -15,6 +16,16 @@ flag = False  # проверка создается ли запись
 # запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки
 kb = [[types.KeyboardButton(text="Прекратить создание записи"), types.KeyboardButton(text="Пропустить")], ]
 skip_keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
+kb2 = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
+    ]
+hi = ['Привет! Выбери действие!', 'Выберите действие', 'Пасхалка)']
+g = choice(hi)
+print(g)
+keyboard = types.ReplyKeyboardMarkup(
+        keyboard=kb2,
+        resize_keyboard=True,
+        input_field_placeholder=g
+    )
 
 
 class RecordStatesGroup(StatesGroup):
@@ -28,13 +39,6 @@ class RecordStatesGroup(StatesGroup):
 
 @dp.message_handler(commands='start')  # по команде /start выводиться вопрос + выбор кнопок
 async def start(message: types.Message):
-    kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
-    ]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True,
-        input_field_placeholder="Выберите действие"
-    )
     await message.answer("Привет, что хочешь сделать?", reply_markup=keyboard)
 
 
@@ -72,6 +76,13 @@ async def new_day(message: types.Message) -> None:
 
 @dp.message_handler(state=RecordStatesGroup.date)
 async def input_date(message: types.Message, state: FSMContext) -> None:
+    global g, keyboard
+    g = choice(hi)
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=kb2,
+        resize_keyboard=True,
+        input_field_placeholder=g
+    )
     async with state.proxy() as data:
         date = message.text
         stop = False
@@ -92,7 +103,7 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
                     data['date'] = date
     # здесь и везде далее сохнаняется полученное сообщение в словарь data. потом из него можно будет в бд заливать
     if stop:
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=keyboard)
         await state.finish()
     else:
         if res == 'flag':
@@ -107,7 +118,7 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
 @dp.message_handler(state=RecordStatesGroup.text_description)
 async def input_text(message: types.Message, state: FSMContext) -> None:
     if message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=keyboard)
         await state.finish()
     elif message.text == 'Пропустить':
         async with state.proxy() as data:
@@ -134,7 +145,7 @@ async def input_voice(message: types.Message, state: FSMContext) -> None:
         await message.reply('Отправь фотографию за этот день')
         await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения фотографии
     elif message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=keyboard)
         await state.finish()
     else:
         await message.reply('Это не голосовое сообщение')
@@ -153,7 +164,7 @@ async def input_photo(message: types.Message, state: FSMContext) -> None:
         await message.reply('Отправь эмодзи, описывающее этот день')
         await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения эмодзи
     elif message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=keyboard)
         await state.finish()
     else:
         await message.reply('Это не фотография')
@@ -162,7 +173,7 @@ async def input_photo(message: types.Message, state: FSMContext) -> None:
 @dp.message_handler(state=RecordStatesGroup.emoji)
 async def input_emoji(message: types.Message, state: FSMContext) -> None:
     if message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=keyboard)
         await state.finish()
     elif message.text == 'Пропустить':
         async with state.proxy() as data:
@@ -178,8 +189,15 @@ async def input_emoji(message: types.Message, state: FSMContext) -> None:
 
 @dp.message_handler(state=RecordStatesGroup.places)
 async def input_places(message: types.Message, state: FSMContext) -> None:
+    global g, keyboard
+    g = choice(hi)
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=kb2,
+        resize_keyboard=True,
+        input_field_placeholder=g
+    )
     if message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=keyboard)
         await state.finish()
     else:
         if message.text == 'Пропустить':
@@ -216,13 +234,6 @@ async def input_places(message: types.Message, state: FSMContext) -> None:
                 (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
                 '{data['places']}');""")
             con.commit()
-        kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
-              ]
-        keyboard = types.ReplyKeyboardMarkup(
-            keyboard=kb,
-            resize_keyboard=True,
-            input_field_placeholder="Выберите действие"
-        )
         await message.reply('Запись успешно создана!', reply_markup=keyboard)
         await state.finish()  # работа с состояниями завершена
 
