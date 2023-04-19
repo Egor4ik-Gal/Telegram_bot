@@ -47,7 +47,7 @@ async def start(message: types.Message):
 @dp.message_handler(commands=['help', 'h'])  # вспомогательная команда /help дает справку о всех командах бота
 async def help(message: types.Message):
     text = 'Что умеет наш бот?\n/start - поможет тебе создать или посмотреть уже созданные записи\n' \
-           '/new_day - создаст новую запись\nЕсли хочешь на что-то неотвечать напиши просто Пропустить!\n...'
+           '/new_day - создаст новую запись\nЕсли хочешь на что-то не отвечать напиши просто Пропустить!\n...'
     await message.answer(text)
 
 
@@ -265,7 +265,7 @@ async def ask_date(message: types.Message, state: FSMContext) -> None:
                 if text != 'None':
                     data.append(text)
                 else:
-                    data.append('Вы не добавили опсиание этому дню!')
+                    data.append('Вы не добавили описание этому дню!')
                 if photo != 'None':
                     flag2 = True
                 if emoji != 'None':
