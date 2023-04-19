@@ -221,10 +221,11 @@ async def viewing(message: types.Message) -> None:
     dates = cur.execute(
         f"SELECT date FROM Days WHERE user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()
     # здесь нужен список дат которые есть в БД
-    dates_str = ''
+    dates_str = []
     for date in dates:
-        dates_str += str(date[0]) + '\n'
+        dates_str.append(str(date[0]))
     if dates:
+        dates_str = "\n".join(dates_str)
         text = f'Есть записи на такие даты:\n{dates_str}'
         await message.reply(text)
         await ViewingStatesGroup.ask_date.set()  # устанавливается состояние ожидания для получения даты
@@ -258,17 +259,43 @@ async def ask_date(message: types.Message, state: FSMContext) -> None:
                     f"SELECT emoji FROM Emojis WHERE day_id = {date_in_db}").fetchall()[0][0]
                 place = cur.execute(
                     f"SELECT places FROM Places WHERE day_id = {date_in_db}").fetchall()[0][0]
+                data = []
+                flag2 = False
                 await message.answer(f'Запись на {date}:')
-                if text:
-                    await message.answer(text)
+                if text != 'None':
+                    data.append(text)
+                else:
+                    data.append('Вы не добавили опсиание этому дню!')
+                if photo != 'None':
+                    flag2 = True
+                if emoji != 'None':
+                    data.append(emoji)
+                else:
+                    data.append('вы не добавили эмодзи этому дню!')
+                if place != 'None':
+                    data.append(place)
+                else:
+                    data.append('Вы не добавили мест этому дню!')
+                if flag2:
+                    await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption=
+                    f'Запись на {date}:\nОписание дня: {data[0] + " " + data[1]}\nМеста в которых вы побывали: {data[2]}')
+                else:
+                    await message.answer(
+                        f'Запись на {date}:\nОписание дня: {data[0] + " " + data[1]}\nМеста в которых вы'
+                        f' побывали: {data[2]}')
                 if voice:
                     await bot.send_voice(chat_id=message.from_user.id, voice=voice)
-                if photo:
-                    await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption='Фотография в этот день')
-                if emoji:
-                    await message.answer(emoji)
-                if place:
-                    await message.answer(place)
+                # await message.answer(f'Запись на {date}:')
+                # if text:
+                #     await message.answer(text)
+                # if voice:
+                #     await bot.send_voice(chat_id=message.from_user.id, voice=voice)
+                # if photo:
+                #     await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption='Фотография в этот день')
+                # if emoji:
+                #     await message.answer(emoji)
+                # if place:
+                #     await message.answer(place)
             else:
                 await message.reply('На эту дату нет записи. Попробуй другую')
         except IndexError:
