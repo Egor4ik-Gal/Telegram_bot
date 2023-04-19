@@ -243,32 +243,35 @@ async def ask_date(message: types.Message, state: FSMContext) -> None:
         if datetime.strptime(str(dt.date.today()), "%Y-%m-%d") < datetime.strptime(date, "%d-%m-%Y"):
             res = False
     if res:
-        date_in_db = cur.execute(
-            f"SELECT id FROM Days WHERE date = '{date}' AND user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()[0][0]
-        # проверка есть ли дата в БД
-        if date_in_db:
-            text = cur.execute(
-                f"SELECT text FROM Texts WHERE day_id = {date_in_db}").fetchall()[0][0]
-            voice = cur.execute(
-                f"SELECT voice FROM Voices WHERE day_id = {date_in_db}").fetchall()[0][0]
-            photo = cur.execute(
-                f"SELECT photo FROM Photos WHERE day_id = {date_in_db}").fetchall()[0][0]
-            emoji = cur.execute(
-                f"SELECT emoji FROM Emojis WHERE day_id = {date_in_db}").fetchall()[0][0]
-            place = cur.execute(
-                f"SELECT places FROM Places WHERE day_id = {date_in_db}").fetchall()[0][0]
-            await message.answer(f'Запись на {date}:')
-            if text:
-                await message.answer(text)
-            if voice:
-                await bot.send_voice(chat_id=message.from_user.id, voice=voice)
-            if photo:
-                await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption='Фотография в этот день')
-            if emoji:
-                await message.answer(emoji)
-            if place:
-                await message.answer(place)
-        else:
+        try:
+            date_in_db = cur.execute(
+                f"SELECT id FROM Days WHERE date = '{date}' AND user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()[0][0]
+            # проверка есть ли дата в БД
+            if date_in_db:
+                text = cur.execute(
+                    f"SELECT text FROM Texts WHERE day_id = {date_in_db}").fetchall()[0][0]
+                voice = cur.execute(
+                    f"SELECT voice FROM Voices WHERE day_id = {date_in_db}").fetchall()[0][0]
+                photo = cur.execute(
+                    f"SELECT photo FROM Photos WHERE day_id = {date_in_db}").fetchall()[0][0]
+                emoji = cur.execute(
+                    f"SELECT emoji FROM Emojis WHERE day_id = {date_in_db}").fetchall()[0][0]
+                place = cur.execute(
+                    f"SELECT places FROM Places WHERE day_id = {date_in_db}").fetchall()[0][0]
+                await message.answer(f'Запись на {date}:')
+                if text:
+                    await message.answer(text)
+                if voice:
+                    await bot.send_voice(chat_id=message.from_user.id, voice=voice)
+                if photo:
+                    await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption='Фотография в этот день')
+                if emoji:
+                    await message.answer(emoji)
+                if place:
+                    await message.answer(place)
+            else:
+                await message.reply('На эту дату нет записи. Попробуй другую')
+        except IndexError:
             await message.reply('На эту дату нет записи. Попробуй другую')
     else:
         await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
