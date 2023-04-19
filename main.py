@@ -16,11 +16,9 @@ flag = False  # проверка создается ли запись
 # запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки
 kb = [[types.KeyboardButton(text="Прекратить создание записи"), types.KeyboardButton(text="Пропустить")], ]
 skip_keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
-kb2 = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
-    ]
+kb2 = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")], ]
 hi = ['Привет! Выбери действие!', 'Выберите действие', 'Пасхалка)']
 g = choice(hi)
-print(g)
 keyboard = types.ReplyKeyboardMarkup(
         keyboard=kb2,
         resize_keyboard=True,
