@@ -6,7 +6,7 @@ from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
 import sqlite3
 
-token_api = '6033695577:AAHc5EHYk59gA8fUc3zhYDNzASHwi_Nr-yA'
+token_api = '5817449163:AAFHSY06irsY2D5sLRvFcQzbV0u6gqAB69U' ## ПОМЕНЯТЬ НЕ ЗАБУДЬ ПЕРЕД КОММИТОМ
 
 storage = MemoryStorage()
 bot = Bot(token_api)
@@ -15,8 +15,23 @@ con = sqlite3.connect('Telegram-bot.db')
 cur = con.cursor()
 flag = False  # проверка создается ли запись
 # запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки
+start_kb = types.ReplyKeyboardMarkup(
+    keyboard=[[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")], ],
+    resize_keyboard=True, input_field_placeholder="Выберите действие")
 kb = [[types.KeyboardButton(text="Прекратить создание записи"), types.KeyboardButton(text="Пропустить")], ]
 skip_keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
+
+
+def sorting_dates(a):
+    l = len(a)
+    s = []
+    for i in a:
+        s.append(i[0])
+    for i in range(l - 1):
+        for j in range(l - i - 1):
+            if datetime.strptime(s[j], "%d-%m-%Y") > datetime.strptime(s[j + 1], "%d-%m-%Y"):
+                s[j], s[j + 1] = s[j + 1], s[j]
+    return s
 
 
 class RecordStatesGroup(StatesGroup):
@@ -31,16 +46,13 @@ class RecordStatesGroup(StatesGroup):
 class ViewingStatesGroup(StatesGroup):
     ask_date = State()
 
+class MakeOrNot(StatesGroup):
+    ans = State()
+
 
 @dp.message_handler(commands='start')  # по команде /start выводиться вопрос + выбор кнопок
 async def start(message: types.Message):
-    kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
-          ]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True,
-        input_field_placeholder="Выберите действие"
-    )
+    keyboard = start_kb
     await message.answer("Привет, что хочешь сделать?", reply_markup=keyboard)
 
 
@@ -65,7 +77,13 @@ async def new_day(message: types.Message) -> None:
 async def input_date(message: types.Message, state: FSMContext) -> None:
     async with state.proxy() as data:
         date = message.text
+        dates = []
+        dates_in_db = cur.execute(
+            f"SELECT date FROM Days WHERE user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()
+        for a in dates_in_db:
+            dates.append(a[0])
         stop = False
+        exists = False
         if date == 'Прекратить создание записи':
             stop = True
         elif date == 'Пропустить':
@@ -79,15 +97,23 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
             if res:
                 if datetime.strptime(str(dt.date.today()), "%Y-%m-%d") < datetime.strptime(date, "%d-%m-%Y"):
                     res = False
+                elif date in dates:
+                    exists = True
                 else:
                     data['date'] = date
     # здесь и везде далее сохнаняется полученное сообщение в словарь data. потом из него можно будет в бд заливать
     if stop:
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     else:
         if res == 'flag':
             pass
+        elif exists:
+            kb_yes_no = types.ReplyKeyboardMarkup(
+                keyboard=[[types.KeyboardButton(text="Да"), types.KeyboardButton(text="Нет")], ],
+                resize_keyboard=True, )
+            await message.reply('Запись на этот день уже существует\nХотите перезаписать?', reply_markup=kb_yes_no)
+            await MakeOrNot.ans.set()
         elif res:
             await message.reply('Введи описание дня текстом', reply_markup=skip_keyboard)
             await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения описания дня текстом
@@ -95,10 +121,21 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
             await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
 
 
+@dp.message_handler(state=MakeOrNot.ans)
+async def already_exists(message: types.Message, state: FSMContext) -> None:
+    ans = message.text
+    if ans == 'Да':
+        await message.reply('Введи описание дня текстом', reply_markup=skip_keyboard)
+        await RecordStatesGroup.next()
+    else:
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
+        await state.finish()
+
+
 @dp.message_handler(state=RecordStatesGroup.text_description)
 async def input_text(message: types.Message, state: FSMContext) -> None:
     if message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     elif message.text == 'Пропустить':
         async with state.proxy() as data:
@@ -125,7 +162,7 @@ async def input_voice(message: types.Message, state: FSMContext) -> None:
         await message.reply('Отправь фотографию за этот день')
         await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения фотографии
     elif message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     else:
         await message.reply('Это не голосовое сообщение')
@@ -144,7 +181,7 @@ async def input_photo(message: types.Message, state: FSMContext) -> None:
         await message.reply('Отправь эмодзи, описывающее этот день')
         await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения эмодзи
     elif message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     else:
         await message.reply('Это не фотография')
@@ -153,7 +190,7 @@ async def input_photo(message: types.Message, state: FSMContext) -> None:
 @dp.message_handler(state=RecordStatesGroup.emoji)
 async def input_emoji(message: types.Message, state: FSMContext) -> None:
     if message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     elif message.text == 'Пропустить':
         async with state.proxy() as data:
@@ -170,7 +207,7 @@ async def input_emoji(message: types.Message, state: FSMContext) -> None:
 @dp.message_handler(state=RecordStatesGroup.places)
 async def input_places(message: types.Message, state: FSMContext) -> None:
     if message.text == 'Прекратить создание записи':
-        await message.reply('Создание записи прекращено. Данные не сохранены')
+        await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     else:
         if message.text == 'Пропустить':
@@ -221,11 +258,11 @@ async def viewing(message: types.Message) -> None:
     dates = cur.execute(
         f"SELECT date FROM Days WHERE user_id = (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}')").fetchall()
     # здесь нужен список дат которые есть в БД
-    dates_str = []
+    dates = sorting_dates(dates)
+    dates_str = ''
     for date in dates:
-        dates_str.append(str(date[0]))
+        dates_str += str(date) + '\n'
     if dates:
-        dates_str = "\n".join(dates_str)
         text = f'Есть записи на такие даты:\n{dates_str}'
         await message.reply(text)
         await ViewingStatesGroup.ask_date.set()  # устанавливается состояние ожидания для получения даты
