@@ -1,3 +1,4 @@
+import requests
 from aiogram import Bot, Dispatcher, executor, types
 import datetime as dt
 from datetime import datetime
@@ -6,7 +7,7 @@ from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.dispatcher import FSMContext
 import sqlite3
 
-token_api = '5817449163:AAFHSY06irsY2D5sLRvFcQzbV0u6gqAB69U' ## ПОМЕНЯТЬ НЕ ЗАБУДЬ ПЕРЕД КОММИТОМ
+token_api = '6033695577:AAHc5EHYk59gA8fUc3zhYDNzASHwi_Nr-yA' ## ПОМЕНЯТЬ НЕ ЗАБУДЬ ПЕРЕД КОММИТОМ
 
 storage = MemoryStorage()
 bot = Bot(token_api)
@@ -204,6 +205,27 @@ async def input_emoji(message: types.Message, state: FSMContext) -> None:
         await RecordStatesGroup.next()  # устанавливается следующее состояние ожидания для получения адресов
 
 
+def geocoder(address):
+    geocoder_req = f"http://geocode-maps.yandex.ru/1.x/?apikey=40d1649f-0493-4b70-98ba-98533de7710b&geocode={address}&format=json"
+
+    response = requests.get(geocoder_req)
+    if response:
+        json_response = response.json()
+    else:
+        pass
+
+    features = json_response["response"]['GeoObjectCollection']['featureMember']
+    return features[0]['GeoObject'] if features else None
+
+
+def get_addres_coords(address):
+    toponym = geocoder(address)
+    # toponym_address = toponym['metaDataProperty']['GeocoderMetaData']['text']
+    # print(f'проверил {address}, {toponym}')
+    toponym_coords = toponym['Point']['pos']
+    return toponym_coords
+
+
 @dp.message_handler(state=RecordStatesGroup.places)
 async def input_places(message: types.Message, state: FSMContext) -> None:
     if message.text == 'Прекратить создание записи':
@@ -214,43 +236,53 @@ async def input_places(message: types.Message, state: FSMContext) -> None:
             places = None
         else:
             places = message.text
-        async with state.proxy() as data:
-            data['places'] = places
-            #  здесь все записывается в базу данных
-            cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
-            cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
-            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
-             '{str(data['date'])}');""")
-            cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
-            (SELECT id FROM Days WHERE user_id = 
-            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-            '{data['text_description']}');""")
-            cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
-            (SELECT id FROM Days WHERE user_id = 
-            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-            '{data['audio_description']}');""")
-            cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
-            (SELECT id FROM Days WHERE user_id = 
-            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-            '{data['photo']}');""")
-            cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
-            (SELECT id FROM Days WHERE user_id = 
-            (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-            '{data['emoji']}');""")
-            cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
-                (SELECT id FROM Days WHERE user_id = 
-                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-                '{data['places']}');""")
-            con.commit()
-        kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
-              ]
-        keyboard = types.ReplyKeyboardMarkup(
-            keyboard=kb,
-            resize_keyboard=True,
-            input_field_placeholder="Выберите действие"
-        )
-        await message.reply('Запись успешно создана!', reply_markup=keyboard)
-        await state.finish()  # работа с состояниями завершена
+            flag = False
+            try:
+                flag = []
+                places = places.split('\n')
+                for i in range(len(places)):
+                    res = get_addres_coords(places[i])
+                    res = res.split(' ')
+                    res = ','.join(res)
+                    flag.append(res)
+            except Exception as e:
+                await message.reply('Извини, я не понял адреса, можешь написать по другому?')
+            if flag:
+                async with state.proxy() as data:
+                    data['places'] = ';'.join(flag)
+                    # print(flag, data['places'])
+                    #  здесь все записывается в базу данных
+                    cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
+                    cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
+                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
+                     '{str(data['date'])}');""")
+                    cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
+                    (SELECT id FROM Days WHERE user_id = 
+                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+                    '{data['text_description']}');""")
+                    cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
+                    (SELECT id FROM Days WHERE user_id = 
+                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+                    '{data['audio_description']}');""")
+                    cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
+                    (SELECT id FROM Days WHERE user_id = 
+                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+                    '{data['photo']}');""")
+                    cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
+                    (SELECT id FROM Days WHERE user_id = 
+                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+                    '{data['emoji']}');""")
+                    cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
+                        (SELECT id FROM Days WHERE user_id = 
+                        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
+                        '{data['places']}');""")
+                    con.commit()
+                kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
+                      ]
+                keyboard = types.ReplyKeyboardMarkup(
+                    keyboard=kb, resize_keyboard=True, input_field_placeholder="Выберите действие")
+                await message.reply('Запись успешно создана!', reply_markup=keyboard)
+                await state.finish()  # работа с состояниями завершена
 
 
 @dp.message_handler(commands=['viewing'] or types.Message.text == 'Просмотр записей')  # создание записи для нового дня
@@ -314,25 +346,34 @@ async def ask_date(message: types.Message, state: FSMContext) -> None:
                 else:
                     data.append('Вы не добавили мест этому дню!')
                 if flag2:
+                    if ';' in data[2]:
+                        text = data[2].split(';')
+                        text_gl = ''
+                        for i in range(len(text)):
+                            text_gl += f'https://static-maps.yandex.ru/1.x/?ll={text[i]}&z=16&l=map\n'
+                    else:
+                        if data[2] != 'Вы не добавили мест этому дню!':
+                            text_gl = f'https://static-maps.yandex.ru/1.x/?ll={data[2]}&z=16&l=map\n'
+                        else:
+                            text_gl = 'Вы не добавили мест этому дню!'
                     await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption=
-                    f'Запись на {date}:\nОписание дня: {data[0] + " " + data[1]}\nМеста в которых вы побывали: {data[2]}')
+                    f'Запись на {date}:\nОписание дня: {data[0] + " " + data[1]}\nМеста в которых вы побывали: {text_gl}')
                 else:
+                    if ';' in data[2]:
+                        text = data[2].split(';')
+                        text_gl = ''
+                        for i in range(len(text)):
+                            text_gl += f'https://static-maps.yandex.ru/1.x/?ll={text[i]}&z=16&l=map\n'
+                    else:
+                        if data[2] != 'Вы не добавили мест этому дню!':
+                            text_gl = f'https://static-maps.yandex.ru/1.x/?ll={data[2]}&z=16&l=map\n'
+                        else:
+                            text_gl = 'Вы не добавили мест этому дню!'
                     await message.answer(
                         f'Запись на {date}:\nОписание дня: {data[0] + " " + data[1]}\nМеста в которых вы'
-                        f' побывали: {data[2]}')
+                        f' побывали: {text_gl}')
                 if voice:
                     await bot.send_voice(chat_id=message.from_user.id, voice=voice)
-                # await message.answer(f'Запись на {date}:')
-                # if text:
-                #     await message.answer(text)
-                # if voice:
-                #     await bot.send_voice(chat_id=message.from_user.id, voice=voice)
-                # if photo:
-                #     await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption='Фотография в этот день')
-                # if emoji:
-                #     await message.answer(emoji)
-                # if place:
-                #     await message.answer(place)
             else:
                 await message.reply('На эту дату нет записи. Попробуй другую')
         except IndexError:
