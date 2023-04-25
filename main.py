@@ -15,10 +15,14 @@ dp = Dispatcher(bot, storage=storage)
 con = sqlite3.connect('Telegram-bot.db')
 cur = con.cursor()
 flag = False  # проверка создается ли запись
+rewriting_flag = False
 # запись можно создать написав любой текст после команды /new_day либо по нажают определнной кнопки
 start_kb = types.ReplyKeyboardMarkup(
     keyboard=[[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")], ],
     resize_keyboard=True, input_field_placeholder="Выберите действие")
+showing_kb = types.ReplyKeyboardMarkup(
+    keyboard=[[types.KeyboardButton(text="Вернуться назад")], ],
+    resize_keyboard=True, )
 kb = [[types.KeyboardButton(text="Прекратить создание записи"), types.KeyboardButton(text="Пропустить")], ]
 skip_keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, )
 
@@ -53,8 +57,7 @@ class MakeOrNot(StatesGroup):
 
 @dp.message_handler(commands='start')  # по команде /start выводиться вопрос + выбор кнопок
 async def start(message: types.Message):
-    keyboard = start_kb
-    await message.answer("Привет, что хочешь сделать?", reply_markup=keyboard)
+    await message.answer("Привет, что хочешь сделать?", reply_markup=start_kb)
 
 
 @dp.message_handler(commands=['help', 'h'])  # вспомогательная команда /help дает справку о всех командах бота
@@ -100,6 +103,7 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
                     res = False
                 elif date in dates:
                     exists = True
+                    data['date'] = date
                 else:
                     data['date'] = date
     # здесь и везде далее сохнаняется полученное сообщение в словарь data. потом из него можно будет в бд заливать
@@ -124,11 +128,14 @@ async def input_date(message: types.Message, state: FSMContext) -> None:
 
 @dp.message_handler(state=MakeOrNot.ans)
 async def already_exists(message: types.Message, state: FSMContext) -> None:
+    global rewriting_flag
     ans = message.text
     if ans == 'Да':
+        rewriting_flag = True
         await message.reply('Введи описание дня текстом', reply_markup=skip_keyboard)
-        await RecordStatesGroup.next()
+        await RecordStatesGroup.text_description.set()
     else:
+        rewriting_flag = False
         await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
 
@@ -228,14 +235,16 @@ def get_addres_coords(address):
 
 @dp.message_handler(state=RecordStatesGroup.places)
 async def input_places(message: types.Message, state: FSMContext) -> None:
+    global rewriting_flag
     if message.text == 'Прекратить создание записи':
         await message.reply('Создание записи прекращено. Данные не сохранены', reply_markup=start_kb)
         await state.finish()
     else:
+        places = message.text
+        flag = []
         if message.text == 'Пропустить':
             places = None
-        else:
-            places = message.text
+        if places:
             flag = False
             try:
                 flag = []
@@ -247,41 +256,77 @@ async def input_places(message: types.Message, state: FSMContext) -> None:
                     flag.append(res)
             except Exception as e:
                 await message.reply('Извини, я не понял адреса, можешь написать по другому?')
-            if flag:
-                async with state.proxy() as data:
-                    data['places'] = ';'.join(flag)
-                    # print(flag, data['places'])
-                    #  здесь все записывается в базу данных
-                    cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
-                    cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
-                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
-                     '{str(data['date'])}');""")
-                    cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
-                    (SELECT id FROM Days WHERE user_id = 
-                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-                    '{data['text_description']}');""")
-                    cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
-                    (SELECT id FROM Days WHERE user_id = 
-                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-                    '{data['audio_description']}');""")
-                    cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
-                    (SELECT id FROM Days WHERE user_id = 
-                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-                    '{data['photo']}');""")
-                    cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
-                    (SELECT id FROM Days WHERE user_id = 
-                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-                    '{data['emoji']}');""")
-                    cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
-                        (SELECT id FROM Days WHERE user_id = 
-                        (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'), 
-                        '{data['places']}');""")
-                    con.commit()
+        if not rewriting_flag:
+            async with state.proxy() as data:
+                data['places'] = ';'.join(flag)
+                # print(flag, data['places'])
+                #  здесь все записывается в базу данных
+                cur.execute(f"INSERT INTO User_ids(user_id) VALUES({message.from_user.id});")
+                cur.execute(f"""INSERT INTO Days(user_id, date) VALUES(
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}'),
+                 '{str(data['date'])}');""")
+                cur.execute(f"""INSERT INTO Texts(day_id, text) VALUES(
+                (SELECT id FROM Days WHERE user_id =
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'),
+                '{data['text_description']}');""")
+                cur.execute(f"""INSERT INTO Voices(day_id, voice) VALUES(
+                (SELECT id FROM Days WHERE user_id =
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'),
+                '{data['audio_description']}');""")
+                cur.execute(f"""INSERT INTO Photos(day_id, photo) VALUES(
+                (SELECT id FROM Days WHERE user_id =
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'),
+                '{data['photo']}');""")
+                cur.execute(f"""INSERT INTO Emojis(day_id, emoji) VALUES(
+                (SELECT id FROM Days WHERE user_id =
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'),
+                '{data['emoji']}');""")
+                cur.execute(f"""INSERT INTO Places(day_id, places) VALUES(
+                    (SELECT id FROM Days WHERE user_id =
+                    (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}'),
+                    '{data['places']}');""")
+                con.commit()
                 kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
                       ]
                 keyboard = types.ReplyKeyboardMarkup(
                     keyboard=kb, resize_keyboard=True, input_field_placeholder="Выберите действие")
                 await message.reply('Запись успешно создана!', reply_markup=keyboard)
+                await state.finish()  # работа с состояниями завершена
+        else:
+            async with state.proxy() as data:
+                data['places'] = ';'.join(flag)
+                # print(flag, data['places'])
+                #  здесь все записывается в базу данных
+                cur.execute(f"""UPDATE Texts
+                SET text = '{data['text_description']}'
+                WHERE day_id = (SELECT id FROM Days WHERE user_id = 
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}');""")
+
+                cur.execute(f"""UPDATE Voices
+                SET voice = '{data['audio_description']}'
+                WHERE day_id = (SELECT id FROM Days WHERE user_id = 
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}');""")
+
+                cur.execute(f"""UPDATE Photos
+                SET photo = '{data['photo']}'
+                WHERE day_id = (SELECT id FROM Days WHERE user_id = 
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}');""")
+
+                cur.execute(f"""UPDATE Emojis
+                SET emoji = '{data['emoji']}'
+                WHERE day_id = (SELECT id FROM Days WHERE user_id = 
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}');""")
+
+                cur.execute(f"""UPDATE Places
+                SET places = '{data['places']}'
+                WHERE day_id = (SELECT id FROM Days WHERE user_id = 
+                (SELECT id FROM User_ids WHERE user_id = '{message.from_user.id}') AND date = '{data['date']}');""")
+                con.commit()
+                kb = [[types.KeyboardButton(text="Просмотр записей"), types.KeyboardButton(text="Создать запись")],
+                      ]
+                keyboard = types.ReplyKeyboardMarkup(
+                    keyboard=kb, resize_keyboard=True, input_field_placeholder="Выберите действие")
+                await message.reply('Запись успешно изменена!', reply_markup=keyboard)
                 await state.finish()  # работа с состояниями завершена
 
 
@@ -295,8 +340,8 @@ async def viewing(message: types.Message) -> None:
     for date in dates:
         dates_str += str(date) + '\n'
     if dates:
-        text = f'Есть записи на такие даты:\n{dates_str}'
-        await message.reply(text)
+        text = f'Есть записи на такие даты:\n{dates_str}\nНа какую дату вы хотите посмотреть запись?'
+        await message.reply(text, reply_markup=showing_kb)
         await ViewingStatesGroup.ask_date.set()  # устанавливается состояние ожидания для получения даты
     else:
         await message.reply('Пока нет ни одной записи')
@@ -372,14 +417,17 @@ async def ask_date(message: types.Message, state: FSMContext) -> None:
                     await message.answer(
                         f'Запись на {date}:\nОписание дня: {data[0] + " " + data[1]}\nМеста в которых вы'
                         f' побывали: {text_gl}')
+                    await state.finish()
                 if voice:
                     await bot.send_voice(chat_id=message.from_user.id, voice=voice)
             else:
                 await message.reply('На эту дату нет записи. Попробуй другую')
         except IndexError:
             await message.reply('На эту дату нет записи. Попробуй другую')
-    else:
-        await message.reply('Введена некорректная дата\nФормат даты ДД-ММ-ГГГГ')
+    elif date == 'Вернуться назад':
+        await message.reply('Что хочешь сделать?', reply_markup=start_kb)
+        await state.finish()
+
     await state.finish()
 
 
